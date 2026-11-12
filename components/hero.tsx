@@ -30,6 +30,7 @@ function Badge() {
   )
 }
 
+
 export function Hero() {
   return (
     <section className="relative isolate overflow-hidden bg-[#010103]">

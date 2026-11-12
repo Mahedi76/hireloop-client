@@ -1,60 +1,71 @@
 "use client"
 
-import { useState } from "react"
+import * as React from "react"
 import Link from "next/link"
-import { EyeIcon, EyeOffIcon } from "lucide-react"
+import { Eye, EyeOff, Lock, Mail, Shield, User, Users } from "lucide-react"
 
-import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
 /**
  * The shared sign-in / sign-up form. Pure UI — the submit handler only
- * collects the form data (logs it for now); real auth will be plugged in
+ * collects the form data (reports it for now); real auth will be plugged in
  * later where the TODO comment sits.
  */
 
-type AuthMode = "login" | "register"
+export type AuthMode = "login" | "register"
 
-const config = {
+// TODO: Replace this with better-auth (`@/lib/auth-client`) once the backend
+// integration is wired up. For now it only reports the collected data.
+// When that happens, mirror the values as `user.additionalFields.role`
+// in `lib/auth.ts` (better-auth has no role field yet).
+export type UserRole = "seeker" | "recruiter" | "admin"
+
+export type AuthFormData = {
+  email: string
+  password: string
+  name?: string
+  role?: UserRole
+}
+
+const COPY = {
   login: {
     title: "Welcome back",
-    subtitle: "Sign in to continue your job search.",
+    subtitle: "Sign in to continue your job hunt.",
     submitLabel: "Sign In",
-    footerLabel: "New to HireLoop?",
+    showName: false,
+    footer: "New to HireLoop?",
+    footerLinkHref: "/register",
     footerLinkLabel: "Create an account",
-    footerHref: "/register",
   },
   register: {
     title: "Create your account",
-    subtitle: "Start finding your dream job today.",
-    submitLabel: "Create Account",
-    footerLabel: "Already have an account?",
+    subtitle: "Three minutes to set up. Matches start arriving today.",
+    submitLabel: "Sign Up",
+    showName: true,
+    footer: "Already have an account?",
+    footerLinkHref: "/login",
     footerLinkLabel: "Sign in",
-    footerHref: "/login",
   },
 } as const
 
-const inputClassName =
-  "h-12 w-full rounded-xl border border-white/15 bg-white/5 px-4 text-base text-white outline-none transition-colors placeholder:text-white/40 focus:border-primary/60 focus:bg-white/10"
+const inputClass =
+  "h-12 w-full rounded-lg border border-white/10 bg-[#1A1A1F] pl-10 pr-3 text-base tracking-[-0.0125rem] text-[#EDEDEF] shadow-[inset_0_3px_10px_rgba(255,255,255,0.04)] outline-none transition-colors placeholder:text-white/60 focus:border-[#5C53FE]/60 focus:ring-2 focus:ring-[#5C53FE]/30 aria-invalid:border-destructive/60"
+const labelClass = "mb-2 block text-left text-sm text-[#EDEDEF]/80"
 
-/** Labeled text input (name, email, password, …). */
-function Field({
-  label,
-  ...props
-}: React.ComponentPropsWithoutRef<"input"> & { label: string }) {
-  return (
-    <div className="flex flex-col gap-2">
-      <label htmlFor={props.name} className="text-sm font-medium text-white/80">
-        {label}
-      </label>
-      <input
-        id={props.name}
-        {...props}
-        className={cn(inputClassName, props.className)}
-      />
-    </div>
-  )
-}
+// Sign-up role picker — values must match better-auth's `role` field once
+// it is added to `lib/auth.ts` (see the TODO above).
+const ROLES: {
+  value: UserRole
+  label: string
+  icon: React.ComponentType<{ className?: string }>
+}[] = [
+  { value: "seeker", label: "Job Seeker", icon: Users },
+  { value: "recruiter", label: "Recruiter", icon: User },
+  { value: "admin", label: "Admin", icon: Shield },
+]
+
+const rolePillClass =
+  "flex h-full w-full cursor-pointer flex-col items-center justify-center gap-1.5 rounded-lg border px-2 py-3 text-sm tracking-[-0.0125rem] transition-colors has-[input:focus-visible]:ring-2 has-[input:focus-visible]:ring-[#5C53FE]/60"
 
 /** The Sign In / Sign Up pill that toggles between the two pages. */
 function AuthToggle({ mode }: { mode: AuthMode }) {
@@ -70,7 +81,7 @@ function AuthToggle({ mode }: { mode: AuthMode }) {
         className={cn(
           "flex h-10 items-center justify-center rounded-lg text-sm font-medium transition-colors",
           mode === "login"
-            ? "bg-primary text-white"
+            ? "bg-[#5C53FE] text-white"
             : "text-white/60 hover:text-white"
         )}
       >
@@ -82,7 +93,7 @@ function AuthToggle({ mode }: { mode: AuthMode }) {
         className={cn(
           "flex h-10 items-center justify-center rounded-lg text-sm font-medium transition-colors",
           mode === "register"
-            ? "bg-primary text-white"
+            ? "bg-[#5C53FE] text-white"
             : "text-white/60 hover:text-white"
         )}
       >
@@ -92,110 +103,221 @@ function AuthToggle({ mode }: { mode: AuthMode }) {
   )
 }
 
-export function AuthForm({ mode }: { mode: AuthMode }) {
-  const c = config[mode]
+export function AuthForm({
+  mode,
+  onSubmit,
+  error,
+}: {
+  mode: AuthMode
+  /** Called with the collected form values when the form is submitted. */
+  onSubmit?: (data: AuthFormData) => void
+  /** Shown under the submit button, e.g. an auth API error message. */
+  error?: string | null
+}) {
+  const copy = COPY[mode]
+  const isRegister = mode === "register"
 
-  // password show / hide toggle
-  const [showPassword, setShowPassword] = useState(false)
+  // All fields live in one state object — one controlled input per field.
+  const [values, setValues] = React.useState<AuthFormData>({
+    email: "",
+    password: "",
+    name: "",
+    role: "seeker",
+  })
+  const [showPassword, setShowPassword] = React.useState(false)
 
-  /**
-   * Collects all form fields into a plain object.
-   * TODO: pass `data` to the auth API when the functionality is added.
-   */
+  const setField =
+    (field: keyof AuthFormData) =>
+    (event: React.ChangeEvent<HTMLInputElement>) =>
+      setValues((prev) => ({ ...prev, [field]: event.target.value }))
+
   function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
 
-    const data = Object.fromEntries(new FormData(event.currentTarget))
+    // Collect the form data; wire this into better-auth later.
+    const data: AuthFormData = {
+      email: values.email,
+      password: values.password,
+      ...(isRegister ? { name: values.name, role: values.role } : {}),
+    }
     console.log(`${mode} form data:`, data)
+    onSubmit?.(data)
   }
 
   return (
-    <div className="w-full max-w-[420px] rounded-2xl border border-white/10 bg-[#101010] p-6 sm:p-8">
+    <div className="w-full max-w-[420px] rounded-2xl border border-white/10 bg-[#101010] p-6 shadow-[inset_0_3px_10px_rgba(255,255,255,0.06)] sm:p-8">
       <AuthToggle mode={mode} />
 
-      <div className="mt-8 flex flex-col items-center gap-2 text-center">
-        <h1 className="font-heading text-2xl font-bold tracking-[-0.02em] text-white sm:text-3xl">
-          {c.title}
+      <div className="mt-8 mb-8 flex flex-col gap-2 text-center">
+        <h1 className="font-heading text-2xl leading-[1.15] font-bold tracking-[-0.02em] text-white sm:text-[28px]">
+          {copy.title}
         </h1>
-        <p className="text-sm text-white/70 sm:text-base">{c.subtitle}</p>
+        <p className="text-sm leading-[1.6] text-white/70 sm:text-base">
+          {copy.subtitle}
+        </p>
       </div>
 
-      <form
-        onSubmit={handleSubmit}
-        className="mt-8 flex flex-col gap-5"
-        noValidate={false}
-      >
-        {/* Name — only on the sign-up page */}
-        {mode === "register" && (
-          <Field
-            label="Full name"
-            name="name"
-            type="text"
-            placeholder="Your full name"
-            autoComplete="name"
-            required
-          />
-        )}
+      <form onSubmit={handleSubmit} className="flex flex-col gap-5">
+        {/* Role picker — only on the sign-up page */}
+        {copy.showName ? (
+          <fieldset>
+            <legend className={labelClass}>Joining HireLoop as</legend>
+            <div className="grid grid-cols-3 gap-2">
+              {ROLES.map(({ value, label, icon: Icon }) => {
+                const selected = values.role === value
 
-        <Field
-          label="Email"
-          name="email"
-          type="email"
-          placeholder="you@example.com"
-          autoComplete="email"
-          required
-        />
+                return (
+                  <label
+                    key={value}
+                    className={cn(
+                      rolePillClass,
+                      selected
+                        ? "border-[#5C53FE] bg-[#5C53FE]/15 text-white"
+                        : "border-white/10 bg-[#1A1A1F] text-white/70 hover:border-white/25 hover:text-white"
+                    )}
+                  >
+                    <input
+                      type="radio"
+                      name="role"
+                      value={value}
+                      checked={selected}
+                      onChange={() =>
+                        setValues((prev) => ({ ...prev, role: value }))
+                      }
+                      className="sr-only"
+                    />
+                    <Icon aria-hidden className="size-5" />
+                    <span>{label}</span>
+                  </label>
+                )
+              })}
+            </div>
+          </fieldset>
+        ) : null}
 
-        {/* Password with a show / hide button on the right */}
-        <div className="flex flex-col gap-2">
-          <label
-            htmlFor="password"
-            className="text-sm font-medium text-white/80"
-          >
-            Password
+        {copy.showName ? (
+          <div>
+            <label htmlFor="name" className={labelClass}>
+              Full name
+            </label>
+            <div className="relative">
+              <User
+                aria-hidden
+                className="pointer-events-none absolute top-1/2 left-3 size-5 -translate-y-1/2 text-white/50"
+              />
+              <input
+                id="name"
+                name="name"
+                type="text"
+                autoComplete="name"
+                required
+                minLength={2}
+                maxLength={80}
+                value={values.name ?? ""}
+                onChange={setField("name")}
+                placeholder="Jane Doe"
+                className={inputClass}
+              />
+            </div>
+          </div>
+        ) : null}
+
+        <div>
+          <label htmlFor="email" className={labelClass}>
+            Email address
           </label>
           <div className="relative">
+            <Mail
+              aria-hidden
+              className="pointer-events-none absolute top-1/2 left-3 size-5 -translate-y-1/2 text-white/50"
+            />
+            <input
+              id="email"
+              name="email"
+              type="email"
+              autoComplete="email"
+              required
+              value={values.email}
+              onChange={setField("email")}
+              placeholder="you@example.com"
+              className={inputClass}
+            />
+          </div>
+        </div>
+
+        <div>
+          <div className="flex items-baseline justify-between">
+            <label htmlFor="password" className={labelClass}>
+              Password
+            </label>
+            {isRegister ? null : (
+              <Link
+                href="/forgot-password"
+                className="mb-2 text-sm text-[#8B85FF] transition-colors hover:text-white"
+              >
+                Forgot password?
+              </Link>
+            )}
+          </div>
+          <div className="relative">
+            <Lock
+              aria-hidden
+              className="pointer-events-none absolute top-1/2 left-3 size-5 -translate-y-1/2 text-white/50"
+            />
             <input
               id="password"
               name="password"
               type={showPassword ? "text" : "password"}
-              placeholder="••••••••"
-              autoComplete={
-                mode === "login" ? "current-password" : "new-password"
-              }
+              autoComplete={isRegister ? "new-password" : "current-password"}
               required
-              className={cn(inputClassName, "pr-12")}
+              minLength={8}
+              maxLength={72}
+              value={values.password}
+              onChange={setField("password")}
+              placeholder={
+                isRegister ? "At least 8 characters" : "Your password"
+              }
+              className={cn(inputClass, "pr-11")}
             />
             <button
               type="button"
-              onClick={() => setShowPassword((shown) => !shown)}
+              onClick={() => setShowPassword((v) => !v)}
               aria-label={showPassword ? "Hide password" : "Show password"}
-              className="absolute top-1/2 right-3 -translate-y-1/2 text-white/50 transition-colors hover:text-white"
+              className="absolute top-1/2 right-2 -translate-y-1/2 rounded-md p-1.5 text-white/50 transition-colors hover:text-white"
             >
               {showPassword ? (
-                <EyeOffIcon className="size-5" aria-hidden />
+                <EyeOff aria-hidden className="size-4" />
               ) : (
-                <EyeIcon className="size-5" aria-hidden />
+                <Eye aria-hidden className="size-4" />
               )}
             </button>
           </div>
         </div>
 
-        <Button
+        <button
           type="submit"
-          className="mt-2 h-12 w-full rounded-xl text-base font-medium hover:bg-primary/90"
+          className="mt-1 h-[52px] w-full rounded-xl bg-[#5C53FE] text-lg font-medium text-[#EDEDEF] shadow-[inset_0_3px_10px_rgba(255,255,255,0.2)] transition-colors hover:bg-[#7B74FF] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/40"
         >
-          {c.submitLabel}
-        </Button>
+          {copy.submitLabel}
+        </button>
+
+        {error ? (
+          <p
+            role="alert"
+            className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive"
+          >
+            {error}
+          </p>
+        ) : null}
       </form>
 
       <p className="mt-6 text-center text-sm text-white/60">
-        {c.footerLabel}{" "}
+        {copy.footer}{" "}
         <Link
-          href={c.footerHref}
-          className="font-medium text-primary hover:underline"
+          href={copy.footerLinkHref}
+          className="font-semibold text-[#8B85FF] transition-colors hover:text-white"
         >
-          {c.footerLinkLabel}
+          {copy.footerLinkLabel}
         </Link>
       </p>
     </div>
